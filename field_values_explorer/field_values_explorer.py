@@ -94,12 +94,16 @@ def printOrSaveToJSONOrSaveToHTMLOrSkip(isSinglePipeline, organization, field, m
     decision = inquirer.prompt([question]).get(
         "printOrSaveToJSONOrSaveToHTMLOrSkip")
     if(decision == "Save to JSON"):
-        with open('fieldValues-{}-{}-{}.json'.format(
-                organization, field, list(fieldValues.keys())[0] if(isSinglePipeline) else "all"), 'w') as f:
+        with open('fieldValues-{}-{}-{}-{}.json'.format(
+                organization,
+                field,
+                list(fieldValues.keys())[0] if(isSinglePipeline) else "all",
+                globalTools.getTimeFilenameSlug()),
+                'w') as f:
             json.dump(fieldValues, f, indent=4)
     elif(decision == "Save to HTML"):
         html_templater.saveToHTML(organization,
-                                  field, maxFieldValues, isViewAllContent, fieldValues)
+            field, maxFieldValues, isViewAllContent, fieldValues)
     elif(decision == "Print"):
         print(json.dumps(fieldValues, indent=4, sort_keys=True))
 
@@ -389,11 +393,21 @@ def pipelineSelection(platformURL, field, organization, token):
     isViewAllContent = enableViewAllContent()
     fieldValues = getFieldValues(
         platformURL, field, organization, copy.deepcopy(pipelines), maxFieldValues, isViewAllContent, token)
-    if(fieldValues):
-        printOrSaveToJSONOrSaveToHTMLOrSkip(
-            isSinglePipeline, organization, field, maxFieldValues, isViewAllContent, fieldValues)
-    else:
-        print("No field values for {}!".format(organization))
+    if not fieldValues or any([not pipeline for pipeline in fieldValues]):
+        msg = '''
+WARNING: At least one pipeline returned no values. If you believe this is an error, please open your Coveo admin console and check the following:
+  * The query pipeline's filters
+  * The query pipeline is not overriding the query parameters Q, AQ or CQ
+        '''
+        print(msg)
+        question = inquirer.List('Ok, I understand',
+            message='Ok, I understand',
+            choices=["Continue"],
+            default="Continue")
+        decision = inquirer.prompt([question]).get("Ok, I understand")
+        
+    printOrSaveToJSONOrSaveToHTMLOrSkip(
+        isSinglePipeline, organization, field, maxFieldValues, isViewAllContent, fieldValues)
     selectNextStep(platformURL, field, organization, token)
 
 

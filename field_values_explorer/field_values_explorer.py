@@ -32,7 +32,7 @@ Returns:
 
 def getField(fields):
     question = inquirer.Text('field',
-                             message="Enter a field (with the @)",
+                             message="Enter a Facet or Multivalue field (with the @)",
                              validate=lambda _, field: validateField(field, fields))
     field = inquirer.prompt([question]).get("field")
     return field
@@ -49,7 +49,7 @@ Returns:
 
 def enableViewAllContent():
     question = inquirer.Confirm('viewAllContent',
-                                message="Enable viewAllContent parameter to bypass document permissions? If yes, your bearer token must have Search - View all content privilege",
+                                message="Enable viewAllContent? If yes, your bearer token must have Search - View all content privilege",
                                 default=False)
     if(inquirer.prompt([question]).get("viewAllContent")):
         return 'true'
@@ -195,7 +195,7 @@ def validateField(field, fields):
     if(len(matchingFields) > 0):
         return True
     else:
-        raise errors.ValidationError("", "This field does not exist")
+        raise errors.ValidationError("", "This field does not exist or is not Facet or Multivalue Facet")
 
 
 '''
@@ -263,7 +263,8 @@ def getOrganizationFields(platformURL, organization, token):
     if(response.status_code == 200):
         rawFields = json.loads(response.text).get("fields", False)
         if(rawFields):
-            fields = list(map(lambda x: x["name"], rawFields))
+            # filter() only includes Facet or Multivalue Facet fields
+            fields = list(map(lambda x: x["name"], filter(lambda x: x['groupByField'] or x['splitGroupByField'], rawFields)))
             return fields
     return False
 
@@ -362,7 +363,7 @@ def fieldSelection(platformURL, organization, token):
     if(not fields):
         raise errors.ValidationError(
             "", "You do not have access to this organization's fields or there's none")    
-    globalTools.printOrSkip("Found {} fields in this organization.".format(
+    globalTools.printOrSkip("Found {} fields in this organization that are Facet or Multivalue Facet.".format(
         len(fields)), fields)
     field = getField(fields)
     return field
@@ -393,7 +394,7 @@ def pipelineSelection(platformURL, field, organization, token):
     isViewAllContent = enableViewAllContent()
     fieldValues = getFieldValues(
         platformURL, field, organization, copy.deepcopy(pipelines), maxFieldValues, isViewAllContent, token)
-    if not fieldValues or any([not pipeline for pipeline in fieldValues]):
+    if not fieldValues or any([not valList for valList in fieldValues.values()]):
         msg = '''
 WARNING: At least one pipeline returned no values. If you believe this is an error, please open your Coveo admin console and check the following:
   * The query pipeline's filters

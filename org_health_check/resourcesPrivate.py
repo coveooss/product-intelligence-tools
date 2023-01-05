@@ -244,7 +244,7 @@ class CheckCondition(CheckResource):
                         # stmt['definition'] has form 'rank adjacency: 5, concept: 5, docDate: 5, summary: 5, TFIDF: 7, title: 7'
                         import re
                         factors = zip(re.findall('\d+', stmt['definition']), re.findall('\d+', stmt2['definition']))
-                        if any([f[0] != 5 and f[1] != 5 and f[0] != f[1] for f in factors]):
+                        if any([f[0] != '5' and f[1] != '5' and f[0] != f[1] for f in factors]):
                             addStmtMsg('MULTIPLE rankingweights ON SAME FACTOR')
 
                     # Multiple query parameters of the same parameter name should not be overridden

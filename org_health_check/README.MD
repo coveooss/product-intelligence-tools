@@ -35,9 +35,14 @@ This repository contains the Org Health Check tool. It's a CLI to check various 
 - The script will ask for a Bearer token; It is to authentify yourself to the calls made to the Platform. To get one, connect to platform.cloud.coveo.com with SSO and open you network calls through developer tools on Chrome (or any other familiar browser). For status calls or any other made to the Platform backend, you have a token beginning by "x" in the Authorization parameter of the request headers. This is what you need.
 - Follow the instructions displayed in the terminal and enjoy!
 
-### Notes
+## Common uses
+### Basic
+The most basic use is self-explanatory: the tool provides warnings about various resources. The tool is aggressive and reports any warning, no matter how small. The tool outputs its warnings in CSV file(s).
 
-- The tool outputs its warnings in CSV file(s).
+### Compare warnings to past warnings
+When you run the tool, you can save the output so that you have a record of these warnings. At some later time (possibly months or years later), you can run it again, and compare the output with your saved record. This will tell you what warnings are new. An online diff tool like https://www.diffchecker.com/diff/ will make this comparison easier.
+
+This comparison is also useful if you have identified some warnings as not important. Save the CSV file of those warnings, and then compare any new output with that saved file. This will tell you which warnings are different from those unimportant warnings. Again, an online diff tool like https://www.diffchecker.com/diff/ will make this easier.
 
 ### Recommendations
 

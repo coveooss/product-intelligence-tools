@@ -66,7 +66,7 @@ You can also explore the values in one pipeline.
 - Does the field have more (or fewer) values than expected? That means this pipeline is returning the wrong content, and may have an issue with its filters. This is especially useful for content-defining fields like @source, @language or @productname.
 
 ### Compare values to past values
-When you run the explorer, you can save the output (in JSON or HTML) so that you have a record of what this pipeline returns. At some later time (possibly months or years later), you can run it again, and compare the output with your saved record. This will tell you what has changed. An online diff tool like https://www.diffchecker.com/diff/ will make this comparison easier.
+When you run the tool, you can save the output (in JSON or HTML) so that you have a record of what this pipeline returns. At some later time (possibly months or years later), you can run it again, and compare the output with your saved record. This will tell you what has changed. An online diff tool like https://www.diffchecker.com/diff/ will make this comparison easier.
 
 ### Sample scenario: Create a facet for the author field
 You are considering making a facet from the author field. You launch the field values explorer for @author, across all pipelines. You discover the following:

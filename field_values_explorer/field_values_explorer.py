@@ -334,9 +334,8 @@ def getFieldValues(platformURL, field, organization, pipelines, maxFieldValues, 
                 fieldValues[pipeline["name"]][value["displayValue"]
                                               ] = value["count"]
         else:
-            print(
-                "There was a problem with the request. Here's the message: " + body["message"])
-            return False
+            print("Query pipeline " + str(pipeline["name"]) + 
+                " had a problem with the request. Here's the message: " + body["message"])
     for pipelineName in fieldValues.keys():
         if(fieldValues[pipelineName] != {}):
             return fieldValues

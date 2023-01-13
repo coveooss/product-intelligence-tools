@@ -13,34 +13,30 @@ Message = namedtuple('Message', ['name', 'id', 'reason'])
 # Abstract base class for all the Check classes
 class CheckResource:
     # rKey is the same string used as a key in the types global variable
-    def __init__(self, rKey, runsQueries = False):
+    def __init__(self, rKey, runsQueries = False, needsViewAllContent = False):
         self.rKey = rKey
-        self.needsViewAllContent = False
         self.queryCount = None
-        if runsQueries:
-            self.needsViewAllContent = True
+        self.runsQueries = runsQueries
+        if self.runsQueries:
             self.queryCount = 0
+        self.needsViewAllContent = needsViewAllContent
     
     # Wrapper around print()
     def log(self, *args, **kwargs):
         print(str(self.rKey) + ': ', end = '')
         print(*args, **kwargs)
     
-    # Returns whether queries can be run for this class.
-    # The subclass is expected to set queryCount correctly if it is used.
-    def isQueryOk(self):
-        return type(self.queryCount) == int
-    
     # Run a query on search/v2?organizationId={orgId}
     # queryParams is concatenated to this call, eg "&viewAllContent=true&q=MY_DOCUMENT_TITLE"
     # Return results
     def runQuery(self, queryParams):
-        if not self.isQueryOk():
+        if not self.runsQueries:
             self.log('ERROR: Trying to perform query when not properly intialized')
             return None
             
+        # https://docs.coveo.com/en/13/api-reference/search-api#tag/Search-V2/operation/searchUsingGet
         endPt = 'search/v2?organizationId={orgId}'
-        searchResults = Api.call(endPt + queryParams)
+        searchResults = Api.call(endPt + queryParams, 'GET')
         self.queryCount = self.queryCount + 1
         return searchResults
     
@@ -50,14 +46,6 @@ class CheckResource:
             print('')
             self.log('Starting')
 
-            # Need View All Content to run queries later
-            if self.needsViewAllContent:
-                self.log('WARNING: Ensure your bearer token has Search - View All Content privilege.')
-
-            # Warn of QPM usage
-            if self.isQueryOk():
-                self.log('WARNING: This check consumes a small number of QPMs.')
-            
             import csvwriter
             writer = csvwriter.CsvWriter(self.rKey)
             writer.writeRow(Message._fields) # Write field names as header row
@@ -74,7 +62,7 @@ class CheckResource:
                     msgResCount = msgResCount + 1
             print('')
             self.log(str(msgResCount) + ' out of ' + str(totalResCount) + ' resources have messages')
-            if self.isQueryOk():
+            if self.runsQueries:
                 self.log('Consumed ' + str(self.queryCount) + ' QPMs')
         finally:
             writer.f.close()
@@ -100,12 +88,12 @@ class CheckResource:
 class CheckIpe(CheckResource):
     def initialize(self):
         # https://docs.coveo.com/en/7/api-reference/extension-api#tag/Indexing-Pipeline-Extensions/operation/getExtensionsUsingGET_9
-        return Api.call('organizations/{orgId}/extensions')
+        return Api.call('organizations/{orgId}/extensions', 'GET')
 
     def checkOne(self, ipe):
         msgs = []
         # https://docs.coveo.com/en/7/api-reference/extension-api#tag/Indexing-Pipeline-Extensions/operation/getExtensionUsingGET_6
-        ipeDetail = Api.call('organizations/{orgId}/extensions/' + str(ipe['id']))
+        ipeDetail = Api.call('organizations/{orgId}/extensions/' + str(ipe['id']) ,'GET')
         
         def addMsg(s):
             return msgs.append(Message(ipeDetail['name'], ipeDetail['id'], s))
@@ -126,7 +114,7 @@ class CheckIpe(CheckResource):
 class CheckSource(CheckResource):
     def initialize(self):
         # https://docs.coveo.com/en/15/api-reference/source-api#tag/Sources/operation/getSourcesUsingGET_6
-        return Api.callPaginated('organizations/{orgId}/sources?perPage=100')
+        return Api.callPaginated('organizations/{orgId}/sources?perPage=100', 'GET')
 
     def checkOne(self, source):
         msgs = []
@@ -150,7 +138,7 @@ class CheckSource(CheckResource):
         # Check schedules
         if not source['pushEnabled']: # Push sources don't have schedules
             # https://docs.coveo.com/en/15/api-reference/source-api#tag/Sources/operation/getSourceSchedulesUsingGET_6
-            for schedule in Api.call('organizations/{orgId}/sources/' + str(source['id']) + '/schedules'):
+            for schedule in Api.call('organizations/{orgId}/sources/' + str(source['id']) + '/schedules', 'GET'):
                 if schedule['refreshType'] == 'REBUILD' and schedule['enabled']:
                     addMsg('SCHEDULED REBUILD ENABLED')
                 if schedule['refreshType'] == 'FULL_REFRESH' and not schedule['enabled']:
@@ -166,7 +154,7 @@ class CheckCondition(CheckResource):
     
         # Get all query pipelines and QP statements so that later we can identify which Conditions have no QP.
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Pipelines/operation/listQueryPipelinesV1
-        allQps = Api.callPaginated('search/v1/admin/pipelines?organizationId={orgId}&perPage=200')
+        allQps = Api.callPaginated('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
 
         # The API returns extra QPs used for A/B tests, which should be ignored.
         # These QPs have the form 'ORIGINAL_QP_NAME-mirror-SOME_NUMBER'
@@ -174,7 +162,7 @@ class CheckCondition(CheckResource):
 
         for qp in self.allQps:
             # https://docs.coveo.com/en/13/api-reference/search-api#tag/Statements-V2/operation/listQueryPipelineStatementsV2
-            qp['statements'] = Api.callPaginatedArray('search/v2/admin/pipelines/' + qp['id'] + '/statements?organizationId={orgId}&perPage=200', 'statements', 'totalPages')
+            qp['statements'] = Api.callPaginatedWrapped('search/v2/admin/pipelines/' + qp['id'] + '/statements?organizationId={orgId}&perPage=200', 'GET', 'statements', 'totalPages')
 
             # If a QP has no condition, the value is None
             if qp['condition'] == None:
@@ -186,7 +174,7 @@ class CheckCondition(CheckResource):
                     stmt['condition'] = self.noCondition
 
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Conditions/operation/listConditions
-        ret = Api.callPaginatedArray('search/v1/admin/pipelines/statements?organizationId={orgId}&perPage=200', 'statements', 'totalPages')
+        ret = Api.callPaginatedWrapped('search/v1/admin/pipelines/statements?organizationId={orgId}&perPage=200', 'GET', 'statements', 'totalPages')
         ret.append(self.noCondition) # Add to list of conditions so we can check against it later
         return ret
 

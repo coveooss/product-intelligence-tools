@@ -62,6 +62,7 @@ class CheckResource:
                     msgResCount = msgResCount + 1
             print('')
             self.log(str(msgResCount) + ' out of ' + str(totalResCount) + ' resources have messages')
+            self.log('Messages have been saved in ' + str(writer.fileName))
             if self.runsQueries:
                 self.log('Consumed ' + str(self.queryCount) + ' QPMs')
         finally:

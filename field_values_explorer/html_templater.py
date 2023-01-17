@@ -3,7 +3,6 @@ This templater module will be used by the field_values_explorer script to build 
 '''
 
 from datetime import datetime
-from pathvalidate import sanitize_filename
 import globalTools
 
 
@@ -58,6 +57,7 @@ Saves to HTML file the content based on the pipelines selected.
 
 def saveToHTML(organization, field, maxFieldValues, isViewAllContent, fieldValues):
     for pipeline in fieldValues.keys():
+        from pathvalidate import sanitize_filename
         fileName = sanitize_filename('fieldValues-{}-{}-{}-{}.html'.format(
             organization, field, "empty" if(pipeline == "") else pipeline, globalTools.getTimeFilenameSlug()))
         with open(fileName, 'w') as f:

@@ -94,12 +94,13 @@ def printOrSaveToJSONOrSaveToHTMLOrSkip(isSinglePipeline, organization, field, m
     decision = inquirer.prompt([question]).get(
         "printOrSaveToJSONOrSaveToHTMLOrSkip")
     if(decision == "Save to JSON"):
-        with open('fieldValues-{}-{}-{}-{}.json'.format(
+        from pathvalidate import sanitize_filename
+        fileName = sanitize_filename('fieldValues-{}-{}-{}-{}.json'.format(
                 organization,
                 field,
                 list(fieldValues.keys())[0] if(isSinglePipeline) else "all",
-                globalTools.getTimeFilenameSlug()),
-                'w') as f:
+                globalTools.getTimeFilenameSlug()))
+        with open(fileName, 'w') as f:
             json.dump(fieldValues, f, indent=4)
     elif(decision == "Save to HTML"):
         html_templater.saveToHTML(organization,

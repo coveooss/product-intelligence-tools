@@ -52,9 +52,7 @@ def getOrganization(organizationIDToPlatformURLMap, token):
 def getTimeFilenameSlug():
     import datetime
     # replace() to get rid of microseconds
-    n = datetime.datetime.now().replace(microsecond = 0)
-    import re
-    return re.sub(r'[^\w_. -]', '_', str(n))
+    return str(datetime.datetime.now().replace(microsecond = 0))
 
 
 '''

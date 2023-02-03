@@ -5,7 +5,9 @@ import resourcesPrivate
 types = {
     'ipe'       : resourcesPrivate.CheckIpe      ('ipe'),
     'source'    : resourcesPrivate.CheckSource   ('source'),
-    'condition' : resourcesPrivate.CheckCondition('condition')
+    'condition' : resourcesPrivate.CheckCondition('condition'),
+    'qp'        : resourcesPrivate.CheckQp       ('qp'),
+    'mlmodel'   : resourcesPrivate.CheckMlModel  ('mlmodel')
 }
 
 def runsQueries(rKey):

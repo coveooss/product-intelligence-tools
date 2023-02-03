@@ -253,3 +253,166 @@ class CheckCondition(CheckResource):
                     # Because multiples of these statements can safely execute.
                     
         return msgs
+
+class CheckQp(CheckResource):
+    def __init__(self, rKey):
+        super().__init__(rKey, True, True) # Uses search API
+
+    def initialize(self):
+        # https://docs.coveo.com/en/13/api-reference/search-api#tag/Pipelines/operation/listQueryPipelinesV1
+        return Api.callPaginated('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
+
+    def checkOne(self, qp):
+        msgs = []
+        def addMsg(s):
+            msgs.append(Message(qp['name'], qp['id'], s))
+            
+        def buildEndpoint(part):
+            return 'search/v2/admin/pipelines/' + qp['id'] + part + '?organizationId={orgId}&perPage=200'
+        
+        # https://docs.coveo.com/en/13/api-reference/search-api#tag/Statements-V2/operation/listQueryPipelineStatementsV2
+        statements = Api.callPaginatedWrapped(buildEndpoint('/statements'), 'GET', 'statements', 'totalPages')
+        for stmt in statements:
+            # Each statement has an id but it's not easily visible on the Admin Console,
+            # so it's not pushed into the csv. Instead, use the definition.
+            # Sometimes the definition has newlines, remove those.
+            stmt['definition'] = stmt['definition'].replace('\n', ' ')
+            
+            if 'warnings' in stmt:
+                [addMsg(str(stmt['definition']) + ': ' + str(w)) for w in stmt['warnings']]
+
+            # Check each query expressions in a filter, ranking rule, or featured result
+            # to see if the query expression matches any content (else the rule is useless)
+            if stmt['feature'] in ['filter', 'ranking', 'top']:
+                # stmt['definition'] has these forms:
+                #   filter aq `@source=="Public Content"`
+                #   boost `@title/="^.*Coveo.*$"` by 10
+                #   top `@urihash==7Vf6bWsytplARQu3`, `@title=="Top - Query Pipeline Feature"`
+                
+                # Extract the query expression(s) that are wrapped in backticks
+                # which is every odd-numbered item after split()
+                queryExpSeq = []
+                i = 0
+                for exp in stmt['definition'].split('`'):
+                    if i % 2 == 1:
+                        queryExpSeq.append(exp)
+                    i = i + 1
+
+                # For Ranking rules and Featured Results, run on the current query pipeline.
+                #
+                # For filters, the ideal way to do this is too complex.
+                # It requires checking if it affects the current pipeline;
+                # which requires creating a new pipeline identical to the current one
+                # but without the current query expression.
+                # Instead, run on the empty query pipeline to see if it matches anything in the index.
+                targetQp = '' # Empty QP for filters
+                if stmt['feature'] != 'filter':
+                    targetQp = qp['name']
+                
+                for exp in queryExpSeq: # run a query on every query expression found
+                    # Pass query expression as q
+                    queryParams = '&pipeline=' + targetQp + '&viewAllContent=true&q=' + exp
+                    searchResults = self.runQuery(queryParams)
+                    if searchResults is None: # Error running query
+                        addMsg(str(stmt['definition']) + ': CANNOT GET SEARCH RESULTS FOR QUERY EXPRESSION')
+                        continue
+
+                    # If it used a different pipeline from the target one.
+                    # Note the empty pipeline is requested as an empty string in targetQp, but returned as the string 'empty',
+                    if searchResults['pipeline'] != targetQp and not (searchResults['pipeline'] == 'empty' and targetQp == ''): 
+                        self.log('ERROR: search used QP "' + searchResults['pipeline'] + '" instead of target "' + targetQp + '"')
+                        break
+                        
+                    # If no content is returned, then the QP statement is never used
+                    if searchResults['totalCount'] < 1:
+                        addMsg(str(stmt['definition']) + ': QUERY EXPRESSION DOES NOT MATCH ANY CONTENT IN ' + ('THE INDEX' if targetQp == '' else 'THIS QUERY PIPELINE'))
+                
+        # https://docs.coveo.com/en/13/api-reference/search-api#tag/Machine-learning-associations/operation/listAssociationsOfPipeline
+        mlAssoc = Api.callPaginatedWrapped(buildEndpoint('/ml/model/associations'), 'GET', 'rules', 'totalPages')
+        
+        if len(mlAssoc) < 1: # no ML models on this QP
+            addMsg('NO ML MODELS')
+
+        for i in range(len(mlAssoc)):
+            ml = mlAssoc[i]
+            def addMlMsg(s):
+                addMsg('MODEL ' + ml['modelDisplayName'] + ' ' + s)
+
+            mlType = ml['modelEngine']
+
+            if mlType not in ['topclicks', 'querysuggest', 'eventrecommendation', 'facetsense', 'mlquestionanswering']:
+                addMlMsg('HAS UNRECOGNIZED ML TYPE ' + ml['modelEngine'])
+                
+            if mlType == 'topclicks': # ART
+                if ml['rankingModifier'] > 250:
+                    addMlMsg('RANKING MODIFIER ' + str(ml['rankingModifier']) + ' ABOVE RECOMMENDED VALUE')
+                if ml['maxRecommendations'] > 5:
+                    addMlMsg('MAX RECOMMENDATIONS ' + str(ml['maxRecommendations']) + ' ABOVE RECOMMENDED VALUE')
+                # ART model structure: {'id': '67135f5b-99c2-426a-b72a-141384d301ff', 'position': 5, 'modelId': 'coveosalesforcetestakshatha_topclicks_f92ca3c4_ade9_4ab2_b5a5_406b5f6ca69b', 'modelDisplayName': 'Trailhead', 'modelEngine': 'topclicks', 'modelStatus': 'ONLINE', 'rankingModifier': 250, 'maxRecommendations': 5, 'cacheMaximumAge': 'PT10S', 'intelligentTermDetection': False, 'matchBasicExpression': False, 'matchAdvancedExpression': True, 'useAdvancedConfiguration': False}
+                
+            if mlType == 'querysuggest': # QS
+                if ml['maxRecommendations'] > 10:
+                    addMlMsg('MAX RECOMMENDATIONS ' + str(ml['maxRecommendations']) + ' ABOVE RECOMMENDED VALUE')
+                # QS model structure: {'id': 'ad11402c-2056-439d-a973-a51f33553683', 'position': 7, 'modelId': 'coveosalesforcetestakshatha_querysuggest_generated_4a7148a8dd94fb4d209827db709fa662', 'modelDisplayName': 'Help Portal Query Suggest Model', 'modelEngine': 'querysuggest', 'modelStatus': 'ONLINE', 'maxRecommendations': 10, 'cacheMaximumAge': 'PT10S', 'useAdvancedConfiguration': False}
+                
+            if mlType == 'eventrecommendation': # CR
+                if ml['rankingModifier'] > 1000:
+                    addMlMsg('RANKING MODIFIER ' + str(ml['rankingModifier']) + ' ABOVE RECOMMENDED VALUE')
+                # CR model structure: {'id': 'bb0cb349-c5fe-4e33-a772-073620db3921', 'position': 4, 'modelId': 'coveosalesforcetestakshatha_eventrecommendation_generated_f26da950084f91411f2487f6cd0b983f', 'modelDisplayName': 'Model11', 'modelEngine': 'eventrecommendation', 'modelStatus': 'ONLINE', 'rankingModifier': 1000, 'cacheMaximumAge': 'PT10S', 'exclusive': True, 'customQueryParameters': {}, 'description': '1 Day - For Testing Pageviews'}
+                
+            if mlType == 'facetsense': # DNE
+                if ml['rankingModifier'] > 50:
+                    addMlMsg('RANKING MODIFIER ' + str(ml['rankingModifier']) + ' ABOVE RECOMMENDED VALUE')
+                # DNE model structure: {'id': '3a811bd2-65fc-4f62-a485-f103db4b677a', 'position': 2, 'modelId': 'coveosalesforcetestakshatha_facetsense_3336f122_a2ef_4694_904f_9c185d9aed31', 'modelDisplayName': 'PBM Marketplace Search DNE', 'modelEngine': 'facetsense', 'modelStatus': 'ONLINE', 'rankingModifier': 50, 'cacheMaximumAge': 'PT10S', 'customQueryParameters': {'facetOrdering': {'isEnabled': True}, 'facetValueOrdering': {'isEnabled': True}, 'facetAutoSelect': {'isEnabled': False}, 'rankingBoost': {'isEnabled': True}}, 'useAdvancedConfiguration': False}
+                
+            if mlType == 'mlquestionanswering': # Smart snippets
+                pass # Nothing to do
+                # Smart snippets model structure {'id': 'bcf5f242-f227-43c0-9061-f6f55a0648f5', 'position': 9, 'modelId': 'coveosalesforcetestakshatha_mlquestionanswering_aef64b4c_35ef_4e12_a868_4306b7f09109', 'modelDisplayName': 'Documentation - R&D - 03/01/22', 'modelEngine': 'mlquestionanswering', 'modelStatus': 'ONLINE', 'cacheMaximumAge': 'PT10S', 'contentIdKeys': ['permanentid', 'urihash']}
+
+            # Compare the models to each other
+            # Starting j at i + 1 guarantees:
+            #       you never compare an item to itself
+            #   and you never compare the same item twice
+            for j in range(i + 1, len(mlAssoc)):
+                ml2 = mlAssoc[j]
+
+                # 2 models of the same type in the same query pipeline with the same condition or no condition
+                if mlType == ml2['modelEngine'] and \
+                   ml.get('condition', 'NO CONDITION') == ml2.get('condition', 'NO CONDITION'):
+                    addMlMsg('RUNS ON SAME CONDITION AS OTHER mlmodel ' + str(ml2['modelDisplayName']))
+
+        return msgs
+        
+class CheckMlModel(CheckResource):
+    def initialize(self):
+        # Get all query pipelines so that later we can identify which ml models have no QP.
+        # https://docs.coveo.com/en/13/api-reference/search-api#tag/Pipelines/operation/listQueryPipelinesV1
+        allQps = Api.callPaginated('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
+        
+        # https://docs.coveo.com/en/13/api-reference/search-api#tag/Machine-learning-associations/operation/listAssociationsOfPipeline
+        self.allMlAssoc = []
+        [self.allMlAssoc.extend(Api.callPaginatedWrapped('search/v2/admin/pipelines/' + qp['id'] + \
+            '/ml/model/associations?organizationId={orgId}&perPage=200', 'GET', 'rules', 'totalPages')) for qp in allQps]
+
+        # https://docs.coveo.com/en/19/api-reference/machine-learning-api#tag/Machine-Learning-Models/operation/listModelsWithDetailsUsingGET_6
+        return Api.call('organizations/{orgId}/machinelearning/models/details', 'GET')
+
+    def checkOne(self, mlModel):
+        msgs = []
+        def addMsg(s):
+            msgs.append(Message(mlModel['modelDisplayName'], mlModel['id'], s))
+
+        if mlModel.get('modelActivenessState') == 'INACTIVE':
+            addMsg('INACTIVE')
+        if type(mlModel['nextModelUpdateTime']) != int or mlModel['nextModelUpdateTime'] < 0:
+            addMsg('INVALID NEXT UPDATE TIME')
+        if any([badStatus in mlModel['status'] for badStatus in ['DEGRADED', 'FAILED', 'ERROR', 'OFFLINE']]):
+            addMsg('STATUS: ' + mlModel['status'])
+
+        for e in mlModel['modelErrorDescription']['customer_errors']:
+            addMsg('ERROR: code: "' + str(e['errorCode']) + '", type "' + str(e['errorType']) + '", description "' + str(e['description']) + '"')
+        
+        if all([mlModel['id'] != ml['modelId'] for ml in self.allMlAssoc]):
+            addMsg('NOT ASSOCIATED WITH ANY QUERY PIPELINE')
+
+        return msgs

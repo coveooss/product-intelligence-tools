@@ -95,7 +95,7 @@ class CheckIpe(CheckResource):
         msgs = []
         # https://docs.coveo.com/en/7/api-reference/extension-api#tag/Indexing-Pipeline-Extensions/operation/getExtensionUsingGET_6
         ipeDetail = Api.call('organizations/{orgId}/extensions/' + str(ipe['id']) ,'GET')
-        
+
         def addMsg(s):
             return msgs.append(Message(ipeDetail['name'], ipeDetail['id'], s))
         
@@ -109,6 +109,13 @@ class CheckIpe(CheckResource):
             addMsg('TIMEOUT INDICATOR: ' + str(ipeDetail['status']['timeoutHealth']['healthIndicator']))
         if ipeDetail['status']['timeoutLikeliness'] != 'NONE':
             addMsg('TIMEOUT LIKELINESS: ' + str(ipeDetail['status']['timeoutLikeliness']))
+        
+        # Check if IPE script body modifies item permissions
+        #
+        # https://docs.coveo.com/en/34/index-content/document-object-python-api-reference
+        permissionsFuncs = ['clear_permissions', 'add_allowed', 'add_denied', 'set_permissions']
+        if any([p in ipeDetail['content'] for p in permissionsFuncs]):
+            addMsg('IPE MODIFIES PERMISSIONS. VALIDATE IT COVERS EVERY USE CASE, AND REJECTS DOCUMENTS ON ERROR.')
         
         return msgs
 
@@ -146,6 +153,28 @@ class CheckSource(CheckResource):
                     addMsg('SCHEDULED RESCAN DISABLED')
                 # Can’t check Refresh because it only applies for certain source types;
                 # eg Confluence On-premise can Refresh only if the plugin is installed
+
+        # Check if source is unsecured for connectors that can be secured
+        if source['sourceVisibility'] == 'SHARED':
+          # Fully secured connectors
+          securedConnectors = ['BOX', 'BOX_ENTERPRISE', 'BOX_ENTERPRISE2', 'DATABASE', 'DROPBOX', 'DROPBOX_FOR_BUSINESS', 'FILE', 'GENERIC_REST', 'GMAIL', 'GMAIL_DOMAIN_WIDE', 'GOOGLE_DRIVE_DOMAIN_WIDE', 'KHOROS', 'LITHIUM', 'MICROSOFT_DYNAMICS', 'SALESFORCE', 'SERVICENOW', 'SHAREPOINT', 'SHAREPOINT_ONLINE', 'SHAREPOINT_ONLINE2', 'SITECORE', 'SLACK', 'TEMPLATED_GENERIC_REST', 'ZENDESK']
+          
+          # Secured if certain things are true on the source system (eg Confluence plugin installed)
+          partlySecuredConnectors = ['CATALOG', 'CONFLUENCE', 'CONFLUENCE2', 'CONFLUENCE2_HOSTED', 'JIRA2', 'JIRA2_HOSTED', 'JIVE_HOSTED', 'PUSH']
+          
+          if source['sourceType'] in securedConnectors or \
+             source['sourceType'] in partlySecuredConnectors:
+              addMsg('CONTENT PERMISSIONS NOT INDEXED')
+
+        # Check if no web scraping for Web/Sitemap sources
+        if source['sourceType'] in ['SITEMAP', 'WEB2']:
+            # https://docs.coveo.com/en/15/api-reference/source-api#tag/Sources/operation/getRawSourceUsingGET_9
+            rawSource = Api.call('organizations/{orgId}/sources/' + str(source['id']) + '/raw', 'GET')
+
+            scraping = rawSource['configuration']['parameters'].get('ScrapingConfiguration')
+            # Remove all whitespace from scraping
+            if scraping is None or ''.join(scraping.get('value', '').split()) in ['', '[]']:
+                addMsg('WEB SCRAPING DISABLED')
 
         return msgs
 

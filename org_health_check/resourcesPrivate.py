@@ -109,6 +109,9 @@ class CheckIpe(CheckResource):
             addMsg('TIMEOUT INDICATOR: ' + str(ipeDetail['status']['timeoutHealth']['healthIndicator']))
         if ipeDetail['status']['timeoutLikeliness'] != 'NONE':
             addMsg('TIMEOUT LIKELINESS: ' + str(ipeDetail['status']['timeoutLikeliness']))
+        avgDuration = ipeDetail['status']['dailyStatistics']['averageDurationInSeconds']
+        if type(avgDuration) == float and avgDuration > 0.2:
+            addMsg('AVERAGE TIMEOUT HIGH: ' + str(avgDuration))
         
         # Check if IPE script body modifies item permissions
         #
@@ -443,5 +446,92 @@ class CheckMlModel(CheckResource):
         
         if all([mlModel['id'] != ml['modelId'] for ml in self.allMlAssoc]):
             addMsg('NOT ASSOCIATED WITH ANY QUERY PIPELINE')
+        
+        # DNE or ART
+        if mlModel['engineId'] in ['facetsense', 'topclicks'] and \
+           mlModel['modelSizeStatistic'] < 100:
+            addMsg('POOR QUERY COUNT ' + str(mlModel['modelSizeStatistic']))
+
+        # CR
+        if mlModel['engineId'] == 'eventrecommendation' and \
+           mlModel['modelSizeStatistic'] < 100:
+            addMsg('POOR RECOMMENDATION COUNT ' + str(mlModel['modelSizeStatistic']))
+
+        if mlModel['engineId'] == 'querysuggest' and \
+           mlModel['modelSizeStatistic'] < 100:
+            addMsg('POOR CANDIDATE COUNT ' + str(mlModel['modelSizeStatistic']))
+
+        # Smart Snippets
+        count = mlModel['info'].get('preparationStats', {}).get('snippetCount', -1)
+        if mlModel['engineId'] == 'mlquestionanswering' and count < 100:
+            addMsg('POOR SNIPPET COUNT ' + str(count))
+
+        # Case Classification
+        if mlModel['engineId'] == 'caseclassification':
+            for field, stats in mlModel['info']['trainingDetails']['performanceDetails'].items():
+                if stats['hit1'] < 0.5: # Top prediction is correct
+                    addMsg('FOR FIELD ' + field + ', POOR TOP 1 PREDICTION ' + str(100*stats['hit1']) + '%')
+                if stats['hit3'] < 0.75: # Correct prediction in top 3
+                    addMsg('FOR FIELD ' + field + ', POOR TOP 3 PREDICTION ' + str(100*stats['hit3']) + '%')
+
+        return msgs
+
+class CheckField(CheckResource):
+    def __init__(self, rKey):
+        super().__init__(rKey, True, True) # Uses search API
+
+    def initialize(self):
+        # https://docs.coveo.com/en/13/api-reference/search-api#tag/Search-V2/operation/fields
+        return Api.call('search/v2/fields?organizationId={orgId}&viewAllContent=true', 'GET')['fields']
+        
+    # The type returned by the API is different from the type in the admin console
+    def getType(self, field):
+        typeMap = { # Key is the API type, value is the admin console type
+            'Date': 'Date',
+            'Double': 'Decimal',
+            'LargeString': 'String',
+            'Long': 'Integer 32',
+            'Long64': 'Integer 64'
+        }
+        return typeMap.get(field['fieldType'], field['fieldType'])
+    
+    def checkOne(self, field):
+        msgs = []
+        name = str(field['name'])
+        fType = self.getType(field)
+        
+        def addMsg(s):
+            msgs.append(Message(name, fType, s))
+
+        # See if field has no values in the index, using the empty pipeline.
+        # Pass field name (with @) as q. You can't use /search/v2/facet because that requires the
+        # field to be Facet, so instead run a query.
+        queryParams = '&pipeline=&viewAllContent=true&q=' + name
+        searchResults = self.runQuery(queryParams)
+        if searchResults is None: # Error running query
+            addMsg('CANNOT GET SEARCH RESULTS FOR FIELD')
+        elif searchResults['totalCount'] < 1:
+            addMsg('FIELD HAS NO VALUE IN THE INDEX')
+        else: # Field has values so check if its settings are reasonable
+            # Free-Text Searchable
+            if field['includeInQuery']:
+                addMsg('Free-Text Searchable: Impacts relevance and query performance. Does the user expect Coveo to search this field for typed keywords? If yes AND the field has many values (more than 50), it should be Free-Text Searchable. If yes BUT the field has less than 50 values, it may be better as a Facet. If no, it should be neither.')
+
+            # Displayable in Results
+            if field['includeInResults']:
+                addMsg('Displayable in Results: Security risk. Ensure that this field does not contain sensitive data.')
+
+            s = ': Impacts caching and can reduce query performance. If this setting is not needed, remove it.'
+
+            # Integer 32, Integer 64, Decimal, and Date are always Facet and Sortable
+            if field['sortByField'] and fType not in ['Integer 32', 'Integer 64', 'Decimal', 'Date']:
+                addMsg('Sortable' + s)
+
+            if field['groupByField'] and fType not in ['Integer 32', 'Integer 64', 'Decimal', 'Date']:
+                addMsg('Facet' + s)
+
+            if field['splitGroupByField']:
+                addMsg('Multi-value Facet' + s)
+
 
         return msgs

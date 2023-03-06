@@ -7,7 +7,8 @@ types = {
     'source'    : resourcesPrivate.CheckSource   ('source'),
     'condition' : resourcesPrivate.CheckCondition('condition'),
     'qp'        : resourcesPrivate.CheckQp       ('qp'),
-    'mlmodel'   : resourcesPrivate.CheckMlModel  ('mlmodel')
+    'mlmodel'   : resourcesPrivate.CheckMlModel  ('mlmodel'),
+    'field'     : resourcesPrivate.CheckField    ('field')
 }
 
 def runsQueries(rKey):

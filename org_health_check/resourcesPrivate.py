@@ -32,7 +32,7 @@ class CheckResource:
     def runQuery(self, queryParams):
         if not self.runsQueries:
             self.log('ERROR: Trying to perform query when not properly intialized')
-            return None
+            return False
             
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Search-V2/operation/searchUsingGet
         endPt = 'search/v2?organizationId={orgId}'
@@ -149,13 +149,16 @@ class CheckSource(CheckResource):
         # Check schedules
         if not source['pushEnabled']: # Push sources don't have schedules
             # https://docs.coveo.com/en/15/api-reference/source-api#tag/Sources/operation/getSourceSchedulesUsingGET_6
-            for schedule in Api.call('organizations/{orgId}/sources/' + str(source['id']) + '/schedules', 'GET'):
-                if schedule['refreshType'] == 'REBUILD' and schedule['enabled']:
-                    addMsg('SCHEDULED REBUILD ENABLED')
-                if schedule['refreshType'] == 'FULL_REFRESH' and not schedule['enabled']:
-                    addMsg('SCHEDULED RESCAN DISABLED')
-                # Can’t check Refresh because it only applies for certain source types;
-                # eg Confluence On-premise can Refresh only if the plugin is installed
+            schedules = Api.call('organizations/{orgId}/sources/'+ str(source['id']) + '/schedules', 'GET')
+            
+            # schedules could be empty if a schedule was never set
+            if not schedules or \
+              not any([s['refreshType'] == 'FULL_REFRESH' and s['enabled'] for s in schedules]): 
+                addMsg('SCHEDULED RESCAN DISABLED')
+            if any([s['refreshType'] == 'REBUILD' and s['enabled'] for s in schedules]):
+                addMsg('SCHEDULED REBUILD ENABLED')
+            # Can’t check Refresh because it only applies for certain source types;
+            # eg Confluence On-premise can Refresh only if the plugin is installed
 
         # Check if source is unsecured for connectors that can be secured
         if source['sourceVisibility'] == 'SHARED':
@@ -345,7 +348,7 @@ class CheckQp(CheckResource):
                     # Pass query expression as q
                     queryParams = '&pipeline=' + targetQp + '&viewAllContent=true&q=' + exp
                     searchResults = self.runQuery(queryParams)
-                    if searchResults is None: # Error running query
+                    if searchResults is False: # Error running query
                         addMsg(str(stmt['definition']) + ': CANNOT GET SEARCH RESULTS FOR QUERY EXPRESSION')
                         continue
 
@@ -508,7 +511,7 @@ class CheckField(CheckResource):
         # field to be Facet, so instead run a query.
         queryParams = '&pipeline=&viewAllContent=true&q=' + name
         searchResults = self.runQuery(queryParams)
-        if searchResults is None: # Error running query
+        if searchResults is False: # Error running query
             addMsg('CANNOT GET SEARCH RESULTS FOR FIELD')
         elif searchResults['totalCount'] < 1:
             addMsg('FIELD HAS NO VALUE IN THE INDEX')

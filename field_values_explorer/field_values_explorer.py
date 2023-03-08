@@ -32,7 +32,7 @@ Returns:
 
 def getField(fields):
     question = inquirer.Text('field',
-                             message="Enter a Facet or Multivalue field (with the @)",
+                             message="Enter a Facet or Multivalue field that is Search operator-enabled (with the @)",
                              validate=lambda _, field: validateField(field, fields))
     field = inquirer.prompt([question]).get("field")
     return field
@@ -264,8 +264,8 @@ def getOrganizationFields(platformURL, organization, token):
     if(response.status_code == 200):
         rawFields = json.loads(response.text).get("fields", False)
         if(rawFields):
-            # filter() only includes Facet or Multivalue Facet fields
-            fields = list(map(lambda x: x["name"], filter(lambda x: x['groupByField'] or x['splitGroupByField'], rawFields)))
+            # filter() only includes fields that are: (Facet or Multivalue Facet) AND query syntax-enabled ("Search operator")
+            fields = list(sorted(map(lambda x: x["name"], filter(lambda x: (x['groupByField'] or x['splitGroupByField']) and x['includeInQuery'], rawFields))))
             return fields
     return False
 
@@ -289,8 +289,9 @@ def getOrganizationPipelines(platformURL, organization, token):
         platformURL, organization), headers={"Authorization": "Bearer {}".format(token)})
     if(response.status_code == 200):
         rawPipelines = json.loads(response.text)
-        pipelines = list(
-            map(lambda x: {"name": x["name"], "id": x["id"]}, rawPipelines))
+        pipelines = list(sorted(
+            map(lambda x: {"name": x["name"], "id": x["id"]}, rawPipelines),
+            key = lambda pipeline: pipeline["name"]))
         return pipelines
     return False
 

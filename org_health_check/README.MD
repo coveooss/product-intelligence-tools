@@ -5,7 +5,7 @@ This repository contains the Org Health Check tool. It's a CLI to check various 
 ### Prerequisites
 
 - Clone the Product Intelligence Tools repository
-- Python >= 3.0
+- Python >= 3.10
   - To download latest Python version: https://www.python.org/downloads/
 - Pip
   - To download pip: https://pip.pypa.io/en/stable/installation/
@@ -13,7 +13,7 @@ This repository contains the Org Health Check tool. It's a CLI to check various 
 
 ## Getting Started
 
-- Make sure you have prequisites installed
+- Make sure you have pre-requisites installed
 - Go the the org_health_check repository from the product-intelligence-tools main folder
 
 ```

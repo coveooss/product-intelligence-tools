@@ -5,7 +5,7 @@ This repository contains the Field Values Explorer tool. It's a CLI to parse thr
 ### Prerequisites
 
 - Clone the Product Intelligence Tools repository
-- Python >= 3.0
+- Python >= 3.10
   - To download latest Python version: https://www.python.org/downloads/
 - Pip
   - To download pip: https://pip.pypa.io/en/stable/installation/
@@ -13,7 +13,7 @@ This repository contains the Field Values Explorer tool. It's a CLI to parse thr
 
 ## Getting Started
 
-- Make sure you have prequisites installed
+- Make sure you have pre-requisites installed
 - Go the the field_values_explorer repository from the product-intelligence-tools main folder
 
 ```

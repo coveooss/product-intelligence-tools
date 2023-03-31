@@ -131,13 +131,16 @@ Returns:
 
 def getAllRegionsOrganizations(token):
     organizationIDToPlatformURLMap = {}
-    for platformURL in ["https://platform.cloud.coveo.com/", "https://platform-eu.cloud.coveo.com/", "https://platform-au.cloud.coveo.com/"]:
+    organizationIDToAnalyticsURLMap = {}
+    for urlSet in [("https://platform.cloud.coveo.com/", "https://analytics.cloud.coveo.com/"), ("https://platform-eu.cloud.coveo.com/", "https://analytics-eu.cloud.coveo.com/"), ("https://platform-au.cloud.coveo.com/", "https://analytics-au.cloud.coveo.com/")]:
+        platformURL = urlSet[0]
         response = requests.get("{}rest/organizations".format(platformURL),
                                 headers={"Authorization": "Bearer {}".format(token)})
         body = json.loads(response.text)
         for organization in body:
             organizationIDToPlatformURLMap[organization["id"]] = platformURL
-    return organizationIDToPlatformURLMap
+            organizationIDToAnalyticsURLMap[organization["id"]] = urlSet[1]
+    return organizationIDToPlatformURLMap, organizationIDToAnalyticsURLMap
 
 
 # MAIN SECTIONS
@@ -155,10 +158,11 @@ Returns:
 '''
 
 
-def organizationSelection(organizationIDToPlatformURLMap, token):
+def organizationSelection(organizationIDToPlatformURLMap, organizationIDToAnalyticsURLMap, token):
     organization = getOrganization(organizationIDToPlatformURLMap, token)
     platformURL = organizationIDToPlatformURLMap[organization]
-    return platformURL, organization
+    uaURL = organizationIDToAnalyticsURLMap[organization]
+    return platformURL, uaURL, organization
 
 
 # STEPS
@@ -172,10 +176,10 @@ Parameters:
 
 
 def goToOrganizationSelection(token):
-    organizationIDToPlatformURLMap = getAllRegionsOrganizations(token)
-    platformURL, organization = organizationSelection(
-        organizationIDToPlatformURLMap, token)
-    return platformURL, organization
+    organizationIDToPlatformURLMap, organizationIDToAnalyticsURLMap = getAllRegionsOrganizations(token)
+    platformURL, uaURL, organization = organizationSelection(
+        organizationIDToPlatformURLMap, organizationIDToAnalyticsURLMap, token)
+    return platformURL, uaURL, organization
 
 
 '''
@@ -185,5 +189,5 @@ Starting point of the tool.
 
 def start():
     token = getToken()
-    platformURL, organization = goToOrganizationSelection(token)
-    return token, platformURL, organization
+    platformURL, uaURL, organization = goToOrganizationSelection(token)
+    return token, platformURL, uaURL, organization

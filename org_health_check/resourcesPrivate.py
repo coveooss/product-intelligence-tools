@@ -12,47 +12,41 @@ Message = namedtuple('Message', ['name', 'id', 'reason'])
 
 # Abstract base class for all the Check classes
 class CheckResource:
-    # rKey is the same string used as a key in the types global variable
-    def __init__(self, rKey, runsQueries = False, needsViewAllContent = False):
-        self.rKey = rKey
+    def __init__(self, runsQueries = False, needsViewAllContent = False):
         self.queryCount = None
         self.runsQueries = runsQueries
         if self.runsQueries:
             self.queryCount = 0
         self.needsViewAllContent = needsViewAllContent
     
-    # Wrapper around print()
-    def log(self, *args, **kwargs):
-        print(str(self.rKey) + ': ', end = '')
-        print(*args, **kwargs)
-    
     # Run a query on search/v2?organizationId={orgId}
     # queryParams is concatenated to this call, eg "&viewAllContent=true&q=MY_DOCUMENT_TITLE"
     # Return results
     def runQuery(self, queryParams):
         if not self.runsQueries:
-            self.log('ERROR: Trying to perform query when not properly intialized')
+            print('ERROR: Trying to perform query when not properly intialized')
             return False
             
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Search-V2/operation/searchUsingGet
         endPt = 'search/v2?organizationId={orgId}'
-        searchResults = Api.call(endPt + queryParams, 'GET')
+        searchResults = Api().call(endPt + queryParams, 'GET')
         self.queryCount = self.queryCount + 1
         return searchResults
     
     # Check all resources
-    def check(self):
+    # rKey is the same string used as a key in the types global variable
+    def check(self, rKey):
         try:
             print('')
-            self.log('Starting')
+            print('Starting ' + rKey)
 
             import csvwriter
-            writer = csvwriter.CsvWriter(self.rKey)
+            writer = csvwriter.CsvWriter(rKey)
             writer.writeRow(Message._fields) # Write field names as header row
             resources = self.initialize()
             msgResCount = 0 # Count of resources that have messages
             totalResCount = len(resources)
-            self.log('Processing ' + str(totalResCount) + ' resources', end = '')
+            print('Processing ' + str(totalResCount) + ' resources', end = '')
             
             for res in resources:
                 print('.', end = '', flush = True)
@@ -60,11 +54,12 @@ class CheckResource:
                 if msgs:
                     [writer.writeRow(m) for m in msgs]
                     msgResCount = msgResCount + 1
+
             print('')
-            self.log(str(msgResCount) + ' out of ' + str(totalResCount) + ' resources have messages')
-            self.log('Messages have been saved in ' + str(writer.fileName))
+            print(str(msgResCount) + ' out of ' + str(totalResCount) + ' resources have messages')
+            print('Messages have been saved in ' + str(writer.fileName))
             if self.runsQueries:
-                self.log('Consumed ' + str(self.queryCount) + ' QPMs')
+                print('Consumed ' + str(self.queryCount) + ' QPMs')
         finally:
             writer.f.close()
         return True
@@ -89,12 +84,12 @@ class CheckResource:
 class CheckIpe(CheckResource):
     def initialize(self):
         # https://docs.coveo.com/en/7/api-reference/extension-api#tag/Indexing-Pipeline-Extensions/operation/getExtensionsUsingGET_9
-        return Api.call('organizations/{orgId}/extensions', 'GET')
+        return Api().call('organizations/{orgId}/extensions', 'GET')
 
     def checkOne(self, ipe):
         msgs = []
         # https://docs.coveo.com/en/7/api-reference/extension-api#tag/Indexing-Pipeline-Extensions/operation/getExtensionUsingGET_6
-        ipeDetail = Api.call('organizations/{orgId}/extensions/' + str(ipe['id']) ,'GET')
+        ipeDetail = Api().call('organizations/{orgId}/extensions/' + str(ipe['id']), 'GET')
 
         def addMsg(s):
             return msgs.append(Message(ipeDetail['name'], ipeDetail['id'], s))
@@ -125,7 +120,7 @@ class CheckIpe(CheckResource):
 class CheckSource(CheckResource):
     def initialize(self):
         # https://docs.coveo.com/en/15/api-reference/source-api#tag/Sources/operation/getSourcesUsingGET_6
-        return Api.callPaginated('organizations/{orgId}/sources?perPage=100', 'GET')
+        return Api().callPaged('organizations/{orgId}/sources?perPage=100', 'GET')
 
     def checkOne(self, source):
         msgs = []
@@ -149,7 +144,7 @@ class CheckSource(CheckResource):
         # Check schedules
         if not source['pushEnabled']: # Push sources don't have schedules
             # https://docs.coveo.com/en/15/api-reference/source-api#tag/Sources/operation/getSourceSchedulesUsingGET_6
-            schedules = Api.call('organizations/{orgId}/sources/'+ str(source['id']) + '/schedules', 'GET')
+            schedules = Api().call('organizations/{orgId}/sources/'+ str(source['id']) + '/schedules', 'GET')
             
             # schedules could be empty if a schedule was never set
             if not schedules or \
@@ -175,7 +170,7 @@ class CheckSource(CheckResource):
         # Check if no web scraping for Web/Sitemap sources
         if source['sourceType'] in ['SITEMAP', 'WEB2']:
             # https://docs.coveo.com/en/15/api-reference/source-api#tag/Sources/operation/getRawSourceUsingGET_9
-            rawSource = Api.call('organizations/{orgId}/sources/' + str(source['id']) + '/raw', 'GET')
+            rawSource = Api().call('organizations/{orgId}/sources/' + str(source['id']) + '/raw', 'GET')
 
             scraping = rawSource['configuration']['parameters'].get('ScrapingConfiguration')
             # Remove all whitespace from scraping
@@ -190,7 +185,7 @@ class CheckCondition(CheckResource):
     
         # Get all query pipelines and QP statements so that later we can identify which Conditions have no QP.
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Pipelines/operation/listQueryPipelinesV1
-        allQps = Api.callPaginated('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
+        allQps = Api().callPaged('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
 
         # The API returns extra QPs used for A/B tests, which should be ignored.
         # These QPs have the form 'ORIGINAL_QP_NAME-mirror-SOME_NUMBER'
@@ -198,7 +193,7 @@ class CheckCondition(CheckResource):
 
         for qp in self.allQps:
             # https://docs.coveo.com/en/13/api-reference/search-api#tag/Statements-V2/operation/listQueryPipelineStatementsV2
-            qp['statements'] = Api.callPaginatedWrapped('search/v2/admin/pipelines/' + qp['id'] + '/statements?organizationId={orgId}&perPage=200', 'GET', 'statements', 'totalPages')
+            qp['statements'] = Api().callPaged('search/v2/admin/pipelines/' + qp['id'] + '/statements?organizationId={orgId}&perPage=200', 'GET', 'statements', 'totalPages')
 
             # If a QP has no condition, the value is None
             if qp['condition'] == None:
@@ -210,7 +205,7 @@ class CheckCondition(CheckResource):
                     stmt['condition'] = self.noCondition
 
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Conditions/operation/listConditions
-        ret = Api.callPaginatedWrapped('search/v1/admin/pipelines/statements?organizationId={orgId}&perPage=200', 'GET', 'statements', 'totalPages')
+        ret = Api().callPaged('search/v1/admin/pipelines/statements?organizationId={orgId}&perPage=200', 'GET', 'statements', 'totalPages')
         ret.append(self.noCondition) # Add to list of conditions so we can check against it later
         return ret
 
@@ -273,16 +268,18 @@ class CheckCondition(CheckResource):
 
                     # Multiple query parameters of the same parameter name should not be overridden
                     if stmt['feature'] == 'queryParamOverride':
-                        # stmt['definition'] has form 'override query lq:"ghi"'
+                        # stmt['definition'] has form:
+                        # EITHER 'override query lq:"ghi"'
+                        # OR     'override querySuggest enableWordCompletion: true'
                         def parse(s):
-                            return (s['definition'].split('override query ')[1].split(':')[0],
+                            return (s['definition'].split(':')[0].split('override ')[1],
                                     s['definition'].split(':')[1])
                             
                         s  = parse(stmt)
                         s2 = parse(stmt2)
                         # If same parameter but different value
                         if s[0] == s2[0] and s[1] != s2[1]:
-                            addStmtMsg('MULTIPLE OVERRIDE PARAMETER ' + str(s[0]))
+                            addStmtMsg('MULTIPLE OVERRIDE PARAMETER')
 
                     # OK if the statements are: filter; thesaurus; stop words; boosting; featured results
                     # Because multiples of these statements can safely execute.
@@ -290,12 +287,12 @@ class CheckCondition(CheckResource):
         return msgs
 
 class CheckQp(CheckResource):
-    def __init__(self, rKey):
-        super().__init__(rKey, True, True) # Uses search API
+    def __init__(self):
+        super().__init__(True, True) # Uses search API
 
     def initialize(self):
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Pipelines/operation/listQueryPipelinesV1
-        return Api.callPaginated('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
+        return Api().callPaged('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
 
     def checkOne(self, qp):
         msgs = []
@@ -306,7 +303,7 @@ class CheckQp(CheckResource):
             return 'search/v2/admin/pipelines/' + qp['id'] + part + '?organizationId={orgId}&perPage=200'
         
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Statements-V2/operation/listQueryPipelineStatementsV2
-        statements = Api.callPaginatedWrapped(buildEndpoint('/statements'), 'GET', 'statements', 'totalPages')
+        statements = Api().callPaged(buildEndpoint('/statements'), 'GET', 'statements', 'totalPages')
         for stmt in statements:
             # Each statement has an id but it's not easily visible on the Admin Console,
             # so it's not pushed into the csv. Instead, use the definition.
@@ -355,7 +352,7 @@ class CheckQp(CheckResource):
                     # If it used a different pipeline from the target one.
                     # Note the empty pipeline is requested as an empty string in targetQp, but returned as the string 'empty',
                     if searchResults['pipeline'] != targetQp and not (searchResults['pipeline'] == 'empty' and targetQp == ''): 
-                        self.log('ERROR: search used QP "' + searchResults['pipeline'] + '" instead of target "' + targetQp + '"')
+                        print('ERROR: search used QP "' + searchResults['pipeline'] + '" instead of target "' + targetQp + '"')
                         break
                         
                     # If no content is returned, then the QP statement is never used
@@ -363,7 +360,7 @@ class CheckQp(CheckResource):
                         addMsg(str(stmt['definition']) + ': QUERY EXPRESSION DOES NOT MATCH ANY CONTENT IN ' + ('THE INDEX' if targetQp == '' else 'THIS QUERY PIPELINE'))
                 
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Machine-learning-associations/operation/listAssociationsOfPipeline
-        mlAssoc = Api.callPaginatedWrapped(buildEndpoint('/ml/model/associations'), 'GET', 'rules', 'totalPages')
+        mlAssoc = Api().callPaged(buildEndpoint('/ml/model/associations'), 'GET', 'rules', 'totalPages')
         
         if len(mlAssoc) < 1: # no ML models on this QP
             addMsg('NO ML MODELS')
@@ -422,15 +419,15 @@ class CheckMlModel(CheckResource):
     def initialize(self):
         # Get all query pipelines so that later we can identify which ml models have no QP.
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Pipelines/operation/listQueryPipelinesV1
-        allQps = Api.callPaginated('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
+        allQps = Api().callPaged('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
         
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Machine-learning-associations/operation/listAssociationsOfPipeline
         self.allMlAssoc = []
-        [self.allMlAssoc.extend(Api.callPaginatedWrapped('search/v2/admin/pipelines/' + qp['id'] + \
+        [self.allMlAssoc.extend(Api().callPaged('search/v2/admin/pipelines/' + qp['id'] + \
             '/ml/model/associations?organizationId={orgId}&perPage=200', 'GET', 'rules', 'totalPages')) for qp in allQps]
 
         # https://docs.coveo.com/en/19/api-reference/machine-learning-api#tag/Machine-Learning-Models/operation/listModelsWithDetailsUsingGET_6
-        return Api.call('organizations/{orgId}/machinelearning/models/details', 'GET')
+        return Api().call('organizations/{orgId}/machinelearning/models/details', 'GET')
 
     def checkOne(self, mlModel):
         msgs = []
@@ -450,6 +447,9 @@ class CheckMlModel(CheckResource):
         if all([mlModel['id'] != ml['modelId'] for ml in self.allMlAssoc]):
             addMsg('NOT ASSOCIATED WITH ANY QUERY PIPELINE')
         
+        if mlModel.get('extraConfig', {}).get('filterFields') == []:
+            addMsg('NO FILTER FIELDS')
+
         # DNE or ART
         if mlModel['engineId'] in ['facetsense', 'topclicks'] and \
            mlModel['modelSizeStatistic'] < 100:
@@ -480,12 +480,12 @@ class CheckMlModel(CheckResource):
         return msgs
 
 class CheckField(CheckResource):
-    def __init__(self, rKey):
-        super().__init__(rKey, True, True) # Uses search API
+    def __init__(self):
+        super().__init__(True, True) # Uses search API
 
     def initialize(self):
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Search-V2/operation/fields
-        return Api.call('search/v2/fields?organizationId={orgId}&viewAllContent=true', 'GET')['fields']
+        return Api().call('search/v2/fields?organizationId={orgId}&viewAllContent=true', 'GET')['fields']
         
     # The type returned by the API is different from the type in the admin console
     def getType(self, field):

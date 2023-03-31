@@ -11,7 +11,7 @@ In this section you will find the necessary information to start working with ou
 
 ### Prerequisites
 
-- Python >= 3.0
+- Python >= 3.10
   - To download latest Python version: https://www.python.org/downloads/
 - Pip
   - To download pip: https://pip.pypa.io/en/stable/installation/

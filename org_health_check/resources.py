@@ -3,12 +3,12 @@ import resourcesPrivate
 
 # Dict of resource types
 types = {
-    'ipe'       : resourcesPrivate.CheckIpe      ('ipe'),
-    'source'    : resourcesPrivate.CheckSource   ('source'),
-    'condition' : resourcesPrivate.CheckCondition('condition'),
-    'qp'        : resourcesPrivate.CheckQp       ('qp'),
-    'mlmodel'   : resourcesPrivate.CheckMlModel  ('mlmodel'),
-    'field'     : resourcesPrivate.CheckField    ('field')
+    'ipe'       : resourcesPrivate.CheckIpe      (),
+    'source'    : resourcesPrivate.CheckSource   (),
+    'condition' : resourcesPrivate.CheckCondition(),
+    'qp'        : resourcesPrivate.CheckQp       (),
+    'mlmodel'   : resourcesPrivate.CheckMlModel  (),
+    'field'     : resourcesPrivate.CheckField    ()
 }
 
 def runsQueries(rKey):
@@ -18,4 +18,4 @@ def needsViewAllContent(rKey):
     return types[rKey].needsViewAllContent
 
 def check(rKey):
-    return types[rKey].check()
+    return types[rKey].check(rKey)

@@ -451,7 +451,7 @@ Starting point of the tool.
 
 
 def start():
-    token, platformURL, organization = globalTools.start()
+    token, platformURL, uaURL, organization = globalTools.start()
     goToFieldSelection(platformURL, organization, token)
 
 # Start the process by default when running py field_values_explorer.py

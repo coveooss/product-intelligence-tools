@@ -2,15 +2,31 @@
 import json
 
 # Performs and parses Coveo REST API calls.
-# Before calling any class function, you must defines the class variables
-# Api._platformURL, Api._orgId and Api._token.
+# Before calling any function (class or instance), you must defines the class variables
+# Api._platformURL, Api._uaURL, Api._orgId and Api._token.
 
 class Api:
-    def call(endpoint, method, contentType = None, bodyData = None, allowedStatusCodes = [200]):
+    # Create an instance that calls the platform API
+    def __init__(self, target = 'platform'):
+        match target:
+            case 'platform':
+                self.baseUrl = '{platformUrl}rest/'.format(platformUrl = Api._platformURL)
+            case 'ua':
+                self.baseUrl = '{uaUrl}rest/ua/v15/'.format(uaUrl = Api._platformURL)
+            case _: # default
+                raise ValueError # Undefined target
+        self.orgId = Api._orgId
+        self.token = Api._token
+    
+    # Call the API endpoint, using method (eg 'GET'), with the contentType and bodyData.
+    # Return:
+    #   If the returned status code is not in allowedStatusCodes, return False.
+    #   Else return the API JSON response.
+    def call(self, endpoint, method, contentType = None, bodyData = None, allowedStatusCodes = [200]):
         # Note that if an input to format() is not in the target string (eg endpoint does not have an {orgId} parameter)
         # then that input is safely and silently ignored.
-        url = '{platformUrl}rest/'.format(platformUrl = Api._platformURL) + endpoint.format(orgId = Api._orgId)
-        header = {'Authorization': 'Bearer {}'.format(Api._token)}
+        url = self.baseUrl + endpoint.format(orgId = self.orgId)
+        header = {'Authorization': 'Bearer {}'.format(self.token)}
         if contentType is not None:
             header['Content-Type'] = contentType
 
@@ -47,38 +63,39 @@ class Api:
             return True
         return json.loads(response.text)
 
-    # This function is for endpoints that return a paginated array.
-    # It keeps retrieving each page and accumulating the results, then returns them.
-    def callPaginated(endpoint, method, contentType = None, bodyData = None, allowedStatusCodes = [200]):
-        e = endpoint + '&page='
-        totalResponse = []
-        currResponse = []
-        currPage = 0
-        while currPage == 0 or len(currResponse) > 0:
-            currResponse = Api.call(e + str(currPage), method, contentType, bodyData, allowedStatusCodes)
-            if currResponse == False:
-                return False
-            totalResponse.extend(currResponse)
-            currPage = currPage + 1
-        return totalResponse
-    
-    # This function is for endpoints that return a paginated array wrapped in a dict.
-    # It keeps retrieving each page and accumulating the results, then returns them as an array.
-    #   arrayKey is the key of the returned array.
-    #   pageCountKey is the key of the total number of pages.
-    def callPaginatedWrapped(endpoint, method, arrayKey, pageCountKey, contentType = None, bodyData = None, allowedStatusCodes = [200]):
+    # Call an API endpoint that returns paginated responses.
+    #   arrayKey is the response's key for the current results array; if None, then the response itself is the current array.
+    #   pageCountKey is the response's key for the total number of pages; if None, then the response does not include a total count.
+    #   pageParam is the name of the request's current page parameter (in bodyData, or as a query parameter if bodyData is None).
+    # All other inputs are the same as call().
+    # Returns the total response (all pages collected together).
+    def callPaged(self, endpoint, method, arrayKey = None, pageCountKey = None, pageParam = 'page', startPage = 0, contentType = None, bodyData = None, allowedStatusCodes = [200]):
         e = endpoint
+        currPageNum = startPage
+        currResponse = None # One API call's response, will be set later
         totalResponse = []
-        currResponse = {arrayKey: [], pageCountKey: 1}
-        currPage = 0
-        while currPage < currResponse[pageCountKey]:
+        
+        def getCurrArray():
+            return currResponse if arrayKey is None else currResponse[arrayKey]
+
+        # While first iteration OR
+        # (no total page count, so iterate while results remain) OR 
+        # (iterate until you reach total page count)
+        while currPageNum == startPage or \
+          (pageCountKey is None and len(getCurrArray()) > 0) or \
+          (pageCountKey is not None and currPageNum < currResponse[pageCountKey]):
+
+            # Inject currPageNum into API call
             if bodyData is None:
-                e = endpoint + '&page=' + str(currPage)
+                e = endpoint + '&' + pageParam + '=' + str(currPageNum)
             else:
-                bodyData['page'] = int(currPage)
-            currResponse = Api.call(e, method, contentType, bodyData, allowedStatusCodes)
+                bodyData[pageParam] = int(currPageNum)
+
+            # Make the API call, get one page of results
+            currResponse = self.call(e, method, contentType, bodyData, allowedStatusCodes)
             if currResponse == False:
                 return False
-            totalResponse.extend(currResponse[arrayKey])
-            currPage = currPage + 1
+            
+            totalResponse.extend(getCurrArray()) # Accumulate results
+            currPageNum = currPageNum + 1
         return totalResponse

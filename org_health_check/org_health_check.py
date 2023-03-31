@@ -23,11 +23,11 @@ def start():
     print() # Newline
     import globalTools
     from api import Api
-    Api._token, Api._platformURL, Api._orgId = globalTools.start()
+    Api._token, Api._platformURL, Api._uaURL, Api._orgId = globalTools.start()
     
     from csvwriter import CsvWriter
-    CsvWriter._baseFileName = 'org_health_check-{}-{}'.format(Api._orgId, globalTools.getTimeFilenameSlug())
+    CsvWriter._baseFileName = 'org_health_check-{}-{}'.format(Api().orgId, globalTools.getTimeFilenameSlug())
 
-    [resources.check(a) for a in rToCheck]
+    [resources.check(r) for r in rToCheck]
 
 start()

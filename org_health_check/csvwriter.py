@@ -4,7 +4,8 @@ class CsvWriter:
     def __init__(self, fileNameSuffix):
         from pathvalidate import sanitize_filepath
         self.fileName = sanitize_filepath(CsvWriter._baseFileName + '-' + fileNameSuffix + '.csv')
-        self.f = open(self.fileName, 'w', newline = '')
+        # Specify encoding in case output needs Unicode
+        self.f = open(self.fileName, 'w', newline = '', encoding = 'utf-8')
         import csv
         self.w = csv.writer(self.f)
     def writeRow(self, row):

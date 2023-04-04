@@ -12,7 +12,9 @@ class Api:
             case 'platform':
                 self.baseUrl = '{platformUrl}rest/'.format(platformUrl = Api._platformURL)
             case 'ua':
-                self.baseUrl = '{uaUrl}rest/ua/v15/'.format(uaUrl = Api._platformURL)
+                self.baseUrl = '{platformUrl}rest/ua/v15/'.format(platformUrl = Api._platformURL)
+            case 'analytics':
+                self.baseUrl = '{uaUrl}rest/ua/v15/'.format(uaUrl = Api._uaURL)
             case _: # default
                 raise ValueError # Undefined target
         self.orgId = Api._orgId

@@ -33,6 +33,30 @@ class CheckResource:
         self.queryCount = self.queryCount + 1
         return searchResults
     
+    # Contact UA Read API, reading one dimension the specified number of days in the past.
+    # uaFilter follows this syntax: https://docs.coveo.com/en/2727/analyze-usage-data/usage-analytics-read-filter-syntax
+    # Note that spaces in uaFilter should be replaced with +, and certain characters (EG the colon : ) must be ASCII-encoded.
+    def getUa(self, endpoint, dimension, numDays, uaFilter = ''):
+        def getDateString(dayDelta):
+            import datetime
+            d = datetime.date.today() - datetime.timedelta(days = dayDelta) # Calculate delta
+            timeAndTz = 'T00%3A00%3A00.000-0000' # Midnight ('%3A' is ASCII-encoded ':'), in UTC timezone
+            return d.isoformat() + timeAndTz
+
+        fromDateTime = '&from=' + getDateString(1 + numDays)
+        toDateTime = '&to=' + getDateString(1) # Go to yesterday
+        
+        if uaFilter != '':
+            uaFilter = '&f=' + uaFilter
+        
+        # https://docs.coveo.com/en/17/api-reference/usage-analytics-read-api#tag/Dimensions-API-Version-15/operation/get__v15_dimensions_%7Bdimension%7D_values
+        return Api('ua').callPaged(endpoint + dimension + '/values?org={orgId}&n=100' + uaFilter + fromDateTime + toDateTime, 'GET', 'values', None, 'p', 1)
+    
+    # Utility to get all dimensions. Used for troubleshooting, not intended for production. 
+    def getDimensions(self):
+        # https://docs.coveo.com/en/17/api-reference/usage-analytics-read-api#tag/Dimensions-API-Version-15/operation/get__v15_dimensions
+        return Api('analytics').call('dimensions?org={orgId}', 'GET')
+
     # Check all resources
     # rKey is the same string used as a key in the types global variable
     def check(self, rKey):
@@ -207,6 +231,7 @@ class CheckCondition(CheckResource):
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Conditions/operation/listConditions
         ret = Api().callPaged('search/v1/admin/pipelines/statements?organizationId={orgId}&perPage=200', 'GET', 'statements', 'totalPages')
         ret.append(self.noCondition) # Add to list of conditions so we can check against it later
+        
         return ret
 
     def checkOne(self, condition):
@@ -291,6 +316,18 @@ class CheckQp(CheckResource):
         super().__init__(True, True) # Uses search API
 
     def initialize(self):
+        self.numDaysChecked = 60
+        
+        # Get UA for query pipelines
+        qpWithUa = self.getUa('dimensions/', 'SEARCHES.QUERYPIPELINE', self.numDaysChecked)
+
+        # qpWithUa has form {'OccurrenceCount': 1, 'SEARCHES.QUERYPIPELINE': QP_NAME}
+        for qp in qpWithUa:
+            if qp['OccurrenceCount'] <= 0: # Should always be > 0
+                raise ValueError(str(qp))
+        
+        self.qpWithUa = [qp['SEARCHES.QUERYPIPELINE'] for qp in qpWithUa] # Only need the QP name
+
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Pipelines/operation/listQueryPipelinesV1
         return Api().callPaged('search/v1/admin/pipelines?organizationId={orgId}&perPage=200', 'GET')
 
@@ -299,6 +336,10 @@ class CheckQp(CheckResource):
         def addMsg(s):
             msgs.append(Message(qp['name'], qp['id'], s))
             
+        # This QP has no recent UA. This identifies unused QPs and associated conditions, hosted search pages and statements.
+        if qp['name'] not in self.qpWithUa:
+            addMsg('NOT USED FOR AT LEAST ' + str(self.numDaysChecked) + ' DAYS.')
+        
         def buildEndpoint(part):
             return 'search/v2/admin/pipelines/' + qp['id'] + part + '?organizationId={orgId}&perPage=200'
         
@@ -484,11 +525,34 @@ class CheckField(CheckResource):
         super().__init__(True, True) # Uses search API
 
     def initialize(self):
+        self.numDaysChecked = 60
+        # https://docs.coveo.com/en/17/api-reference/usage-analytics-read-api#tag/Dimensions-API-Version-15/operation/get__v15_dimensions_custom_%7Bdimension%7D_values
+        facetUa = self.getUa('dimensions/custom/', 'c_facetid', self.numDaysChecked, "(c_facetid!=''%20AND%20c_facetid!=null)")
+        self.fieldsWithUa = []
+        
+        # facetUa has form {'OccurrenceCount': 1, 'c_facetid': FIELD_NAME}.
+        for f in facetUa:
+            if f['OccurrenceCount'] <= 0: # Should always be > 0
+                raise ValueError(str(f))
+
+            name = f['c_facetid'] # Only need the field name
+            if not name.startswith('@'):
+                name = '@' + name # Normalize the field name
+
+            import re
+            # The field name will be duplicated if it had multiple values. Remove the duplicates.
+            # Duplicates end with _ and a number eg '@docsfeatureimpact_26'
+            if not re.search(r'_\d+$', name): # Keep only the first one
+               self.fieldsWithUa.append(name)
+
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Search-V2/operation/fields
         return Api().call('search/v2/fields?organizationId={orgId}&viewAllContent=true', 'GET')['fields']
         
+    def checkOne(self, field):
+        msgs = []
+        name = str(field['name'])
+        
     # The type returned by the API is different from the type in the admin console
-    def getType(self, field):
         typeMap = { # Key is the API type, value is the admin console type
             'Date': 'Date',
             'Double': 'Decimal',
@@ -496,12 +560,7 @@ class CheckField(CheckResource):
             'Long': 'Integer 32',
             'Long64': 'Integer 64'
         }
-        return typeMap.get(field['fieldType'], field['fieldType'])
-    
-    def checkOne(self, field):
-        msgs = []
-        name = str(field['name'])
-        fType = self.getType(field)
+        fType = typeMap.get(field['fieldType'], field['fieldType'])
         
         def addMsg(s):
             msgs.append(Message(name, fType, s))
@@ -524,17 +583,14 @@ class CheckField(CheckResource):
             if field['includeInResults']:
                 addMsg('Displayable in Results: Security risk. Ensure that this field does not contain sensitive data.')
 
-            s = ': Impacts caching and can reduce query performance. If this setting is not needed, remove it.'
-
             # Integer 32, Integer 64, Decimal, and Date are always Facet and Sortable
             if field['sortByField'] and fType not in ['Integer 32', 'Integer 64', 'Decimal', 'Date']:
-                addMsg('Sortable' + s)
+                addMsg('Sortable impacts caching and can reduce query performance. If this setting is not needed, remove it.')
 
-            if field['groupByField'] and fType not in ['Integer 32', 'Integer 64', 'Decimal', 'Date']:
-                addMsg('Facet' + s)
-
-            if field['splitGroupByField']:
-                addMsg('Multi-value Facet' + s)
-
+            # Field is (Facet or Multivalue Facet) but has no facet UA
+            if ((field['groupByField'] and fType not in ['Integer 32', 'Integer 64', 'Decimal', 'Date']) or \
+              field['splitGroupByField']) and \
+              name not in self.fieldsWithUa:
+                addMsg('Facet but not used as facet for at least ' + str(self.numDaysChecked) + ' days. Remove this setting to improve caching and query performance.')
 
         return msgs

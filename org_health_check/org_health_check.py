@@ -26,7 +26,7 @@ def start():
     Api._token, Api._platformURL, Api._uaURL, Api._orgId = globalTools.start()
     
     from csvwriter import CsvWriter
-    CsvWriter._baseFileName = 'org_health_check-{}-{}'.format(Api().orgId, globalTools.getTimeFilenameSlug())
+    CsvWriter.setFolder('org_health_check-{}-{}'.format(Api().orgId, globalTools.getTimeFilenameSlug()))
 
     [resources.check(r) for r in rToCheck]
 

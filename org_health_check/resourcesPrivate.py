@@ -85,7 +85,7 @@ class CheckResource:
             if self.runsQueries:
                 print('Consumed ' + str(self.queryCount) + ' QPMs')
         finally:
-            writer.f.close()
+            writer.fileDesc.close()
         return True
     
     # Initialize the check, do any setup required.
@@ -320,6 +320,9 @@ class CheckQp(CheckResource):
         
         # Get UA for query pipelines
         qpWithUa = self.getUa('dimensions/', 'SEARCHES.QUERYPIPELINE', self.numDaysChecked)
+        if not qpWithUa: # Error retrieving the UA
+            print('Cannot retrieve UA')
+            qpWithUa = [] # So skip using it
 
         # qpWithUa has form {'OccurrenceCount': 1, 'SEARCHES.QUERYPIPELINE': QP_NAME}
         for qp in qpWithUa:
@@ -526,24 +529,26 @@ class CheckField(CheckResource):
 
     def initialize(self):
         self.numDaysChecked = 60
+        self.fieldsWithUa = []
         # https://docs.coveo.com/en/17/api-reference/usage-analytics-read-api#tag/Dimensions-API-Version-15/operation/get__v15_dimensions_custom_%7Bdimension%7D_values
         facetUa = self.getUa('dimensions/custom/', 'c_facetid', self.numDaysChecked, "(c_facetid!=''%20AND%20c_facetid!=null)")
-        self.fieldsWithUa = []
-        
-        # facetUa has form {'OccurrenceCount': 1, 'c_facetid': FIELD_NAME}.
-        for f in facetUa:
-            if f['OccurrenceCount'] <= 0: # Should always be > 0
-                raise ValueError(str(f))
+        if not facetUa: # Error retrieving the UA
+            print('Cannot retrieve UA')
+        else:
+            # facetUa has form {'OccurrenceCount': 1, 'c_facetid': FIELD_NAME}.
+            for f in facetUa:
+                if f['OccurrenceCount'] <= 0: # Should always be > 0
+                    raise ValueError(str(f))
 
-            name = f['c_facetid'] # Only need the field name
-            if not name.startswith('@'):
-                name = '@' + name # Normalize the field name
+                name = f['c_facetid'] # Only need the field name
+                if not name.startswith('@'):
+                    name = '@' + name # Normalize the field name
 
-            import re
-            # The field name will be duplicated if it had multiple values. Remove the duplicates.
-            # Duplicates end with _ and a number eg '@docsfeatureimpact_26'
-            if not re.search(r'_\d+$', name): # Keep only the first one
-               self.fieldsWithUa.append(name)
+                import re
+                # The field name will be duplicated if it had multiple values. Remove the duplicates.
+                # Duplicates end with _ and a number eg '@docsfeatureimpact_26'
+                if not re.search(r'_\d+$', name): # Keep only the first one
+                   self.fieldsWithUa.append(name)
 
         # https://docs.coveo.com/en/13/api-reference/search-api#tag/Search-V2/operation/fields
         return Api().call('search/v2/fields?organizationId={orgId}&viewAllContent=true', 'GET')['fields']

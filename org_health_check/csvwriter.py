@@ -1,12 +1,20 @@
 # Writes a CSV file. Wraps the csv.writer library. 
 class CsvWriter:
-    # Before instantiating this object, you must have defined the class variable CsvWriter._baseFileName.
-    def __init__(self, fileNameSuffix):
+    def setFolder(folderName):
         from pathvalidate import sanitize_filepath
-        self.fileName = sanitize_filepath(CsvWriter._baseFileName + '-' + fileNameSuffix + '.csv')
+        from pathlib import Path
+        CsvWriter._folderPath = Path(sanitize_filepath(folderName))
+        CsvWriter._folderPath.mkdir()
+
+    # Before instantiating this object, you must have called the class function setFolder().
+    def __init__(self, fileName):
+        self.fileName = CsvWriter._folderPath / (fileName + '.csv')
+        self.fileName = self.fileName.resolve()
+
         # Specify encoding in case output needs Unicode
-        self.f = open(self.fileName, 'w', newline = '', encoding = 'utf-8')
+        self.fileDesc = open(self.fileName, 'w', newline = '', encoding = 'utf-8')
         import csv
-        self.w = csv.writer(self.f)
+        self.w = csv.writer(self.fileDesc)
+
     def writeRow(self, row):
         self.w.writerow(row)
